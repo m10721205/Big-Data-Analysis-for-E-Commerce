@@ -8,12 +8,11 @@ import matplotlib.pyplot as plt  #畫圖的
 from sklearn import preprocessing  #sklearn的前處理套件
 from sklearn.metrics import mean_squared_error  #sklearn中評估指標: mse
 from sklearn.model_selection import train_test_split  #sklearn模型選擇套件中的訓練測試切割器
-# from sklearn.model_selection import GridSearchCV  ##sklearn的網格搜尋
-# from hyperopt import fmin, tpe, hp, partial, STATUS_OK, Trials  ##hyperopt是更好用的調參神器
-# from numpy.random import RandomState  ##hyperopt要用到的numpy套件: random套件
 from datetime import datetime  #日期時間套件
 import lightgbm as lgb  #LightGBM套件
 import xgboost as xgb  #XGBoost套件
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor
 
 pd.options.mode.chained_assignment = None #鏈式賦值警告關閉
 pd.options.display.max_columns = 999      #最大顯示欄位數量
@@ -97,6 +96,26 @@ def run_xgb(X_train, y_train, X_val, y_val, X_test, y_test):
     print(f"XGBoost:  RMSE train: {rmse(y_train, y_predict_train)}   RMSE val: {rmse(y_val, y_predict_valid)}   RMSE test: {rmse(y_test, y_predict_test)}")
     return y_predict_test, model, evals_result  #回傳測試的y 績效、模型資訊、模型訓練後的資訊
 
+
+def run_tree(X_train, y_train, X_val, y_val, X_test, y_test, depth):
+    my_tree=DecisionTreeRegressor(max_depth=depth, max_features='auto')  #建立決策樹模型(參數: 最大深度)
+    my_tree.fit(X_train, y_train)  #決策樹模型訓練
+    y_predict_train = my_tree.predict(X_train)  #訓練的y 績效
+    y_predict_valid = my_tree.predict(X_val)    #驗證的y 績效
+    y_predict_test = my_tree.predict(X_test)    #測試的y 績效
+    print(f"Decision tree: RMSE train: {rmse(y_train, y_predict_train)}  RMSE val: {rmse(y_val, y_predict_valid)}  RMSE test: {rmse(y_test, y_predict_test)}")
+    return y_predict_test, my_tree
+
+
+def run_forest(X_train, y_train, X_val, y_val, X_test, y_test, depth, n_tree):
+    my_forest=RandomForestRegressor(max_depth=depth, n_estimators=n_tree, max_features='auto') #建立隨機森林模型(參數: 最大深度、決策樹數量)
+    my_forest.fit(X_train, y_train)  #隨機森林模型訓練
+    y_predict_train = my_forest.predict(X_train)  #訓練的y 績效
+    y_predict_valid = my_forest.predict(X_val)    #驗證的y 績效
+    y_predict_test = my_forest.predict(X_test)    #測試的y 績效
+    print(f"Random Forest: RMSE train: {rmse(y_train, y_predict_train)}  RMSE val: {rmse(y_val, y_predict_valid)}  RMSE test: {rmse(y_test, y_predict_test)}")
+    return y_predict_test, my_forest
+
 train_df = load_df()  #讀入訓練集
 train_df["date"] = pd.to_datetime(train_df["date"], format="%Y%m%d")  #將訓練集的日期欄位轉成datetime格式
 test_df = load_df("D:/EJ wang/google_data/test_v3.csv")  #讀入測試集
@@ -121,12 +140,6 @@ test_df['totals.bounces'].fillna(0, inplace=True)
 test_df['totals.timeOnSite'].fillna(0, inplace=True)
 test_df['totals.newVisits'].fillna(0, inplace=True)
 test_df['totals.pageviews'].fillna(0, inplace=True)
-
-# train_df["totals.transactionRevenue"]=train_df["totals.transactionRevenue"].values.astype(float)/1000000
-# y = np.log1p(train_df["totals.transactionRevenue"].values.astype(float))
-
-# train_id = train_df["fullVisitorId"].values
-# test_id = test_df["fullVisitorId"].values
 
 ##用label encoding轉換"類別型"特徵
 cat_cols = ["channelGrouping", "device.browser", "device.deviceCategory", "device.operatingSystem",
@@ -161,39 +174,29 @@ for col in num_cols_2:   ## 數值型態轉換float
     X[col] = X[col].astype(float)
     test_df[col]=test_df[col].astype(float)
     print(col)
-# y=np.log1p(train_df["totals.transactionRevenue"].values.astype(float))
+
 y = train_df["totals.transactionRevenue"].values.astype(float) / 1000000   ##訓練資料目標值型態轉float以及還原真實金額(除以10^6)
 X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size= 0.3, random_state=11)   ## 訓練7 / 驗證3 資料拆分
-# test_X2=test_df.drop(['date', 'fullVisitorId', 'visitId', 'visitStartTime', 'totals.transactionRevenue'], axis=1)  ##測試資料集2版
-# y_test2 = test_df['totals.transactionRevenue'].values.astype(float) / 1000000  #測試資料的目標值
 
-test3 = test_df[test_df['date']<=datetime(2018,7,16)]   ##測試資料範圍縮小為約16萬 (原始資料約40幾萬)
-test_X3 = test3.drop(['date', 'fullVisitorId', 'visitId', 'visitStartTime', 'totals.transactionRevenue'], axis=1)  ##測試資料集3版
-y_test3=test3['totals.transactionRevenue'].values.astype(float)/1000000   ###測試資料的目標值
-
-#    ##method_2
-# dev_df = train_df[train_df['date']<=datetime(2017,12,24)]   #根據最早的日期 80%為訓練資料
-# val_df = train_df[train_df['date']>datetime(2017,12,24)]    #剩下20%為驗證資料
-# dev_X = dev_df[cat_cols+num_cols]    # 訓練資料
-# val_X = val_df[cat_cols+num_cols]    # 驗證資料
-#
-# dev_y = np.log1p(dev_df["totals.transactionRevenue"].values.astype(float))   #訓練資料的目標值
-# val_y = np.log1p(val_df["totals.transactionRevenue"].values.astype(float))   #驗證資料的目標值
-#
-# test_X = test_df[cat_cols+num_cols]   #測試資料
-# y_test = np.log1p(test_df['totals.transactionRevenue'].values.astype(float))  #測試資料的目標值
-
-##建立模型
-# xgb_preds, xgb_model, xgb_evals_result = run_xgb(dev_X, dev_y, val_X, val_y, test_X, y_test)
-# lgb_preds, lgb_model, lgb_evals_result = run_lgb(dev_X, dev_y, val_X, val_y, test_X, y_test)
+testRange = test_df[test_df['date']<=datetime(2018,7,16)]   ##測試資料範圍縮小為約16萬 (原始資料約40幾萬)
+X_test = testRange.drop(['date', 'fullVisitorId', 'visitId', 'visitStartTime', 'totals.transactionRevenue'], axis=1)  ##測試資料集3版
+y_test = testRange['totals.transactionRevenue'].values.astype(float)/1000000   ###測試資料的目標值
 
 lgb_start=time.time()  #lgb開始時間
-lgb_preds, lgb_model, lgb_evals_result = run_lgb(X_train, y_train, X_valid, y_valid, test_X3, y_test3)  #執行lgb模型
+lgb_preds, lgb_model, lgb_evals_result = run_lgb(X_train, y_train, X_valid, y_valid, X_test, y_test)  #執行lgb模型
 lgb_end=time.time()  #lgb結束時間
 
 xgb_start=time.time()  #xgb開始時間
-xgb_preds, xgb_model, xgb_evals_result = run_xgb(X_train, y_train, X_valid, y_valid, test_X3, y_test3)  #執行xgb模型
+xgb_preds, xgb_model, xgb_evals_result = run_xgb(X_train, y_train, X_valid, y_valid, X_test, y_test)  #執行xgb模型
 xgb_end=time.time()  #xgb結束時間
+
+tree_start=time.time()  #tree開始時間
+tree_preds, tree_model = run_tree(X_train, y_train, X_valid, y_valid, X_test, y_test, depth=5)  #執行decisionTree模型
+tree_end=time.time()  #tree結束時間
+
+forest_start=time.time()  #forest開始時間
+forest_preds, forest_model = run_forest(X_train, y_train, X_valid, y_valid, X_test, y_test, depth=3, n_tree=30)  #執行randomforest模型
+forest_end=time.time()  #forest結束時間
 
 print(f"Train shape: {X_train.shape}")  #訓練集的維度資訊
 print(f"Validation shape: {X_valid.shape}")  #驗證集的維度資訊
@@ -226,105 +229,11 @@ plt.show()
 ax = xgb.plot_importance(xgb_model, max_num_features=28)
 plt.title('XGBoost Feature Importance (learning rate: 0.01, best iteration: 100)')
 plt.show()
-
-##GridSearchCV
-# my_lgb=lgb.LGBMRegressor()
-# param={ 'max_depth': [5, 7, 9],
-#         'num_leaves': [32, 128, 512],
-#         'learning_rate': [0.01, 0.05, 0.1],
-#         'feature_fraction': [0.7, 0.8, 0.9] }
-# param={ 'max_depth': [5, 7, 9],
-#         'num_leaves': [32, 128, 256],
-#         'learning_rate': [0.01, 0.1, 0.5],}
-        # 'feature_fraction': [0.7, 0.8, 0.9] }
-# param1={
-#     'max_depth': range(3,5,7),
-#     'num_leaves':range(50, 100, 150)
-#        }
-# grid=GridSearchCV(estimator=my_lgb, param_grid=param, scoring='neg_mean_squared_error',
-#                   cv=10, verbose=True, return_train_score=True, n_jobs=-1)
-# start=time.time()
-# grid.fit(dev_X, dev_y)
-# end=time.time()
-# print("本次網格搜尋執行時間為: ", end-start) #24994.531247138977秒=416.5833分=6.943小時
-#
-# print("Valid+-Std     Train  :   Parameters")
-# for i in np.argsort(grid.cv_results_['mean_test_score']):
-#     print('{1:.3f}+-{3:.3f}     {2:.3f}   :  {0}'.format(grid.cv_results_['params'][i],
-#                                     grid.cv_results_['mean_test_score'][i],
-#                                     grid.cv_results_['mean_train_score'][i],
-#                                     grid.cv_results_['std_test_score'][i]))
-
-#hyperopt調參
-# params_space = {'max_depth': hp.hp.quniform('max_depth',  3, 10, 1),
-#                 'learning_rate': hp.hp.uniform('learning_rate', 0.001, 0.5),}
-# trials = hp.Trials()
-# best = hp.fmin(hyper_obj, space=params_space, algo=hp.tpe.suggest, max_evals=50, trials=trials, rstate=RandomState(123))
-# print("\n展示hyperopt獲取的最佳結果，但是要注意的是我們對hyperopt最初的取值範圍做過一次轉換")
-# print(best)
-
-# def rmse(y_true, y_predict):
-#     return 'rmse', round(np.sqrt(mean_squared_error(y_true, y_predict)), 3) #計算rmse取小數點後3位
-
-# def objective(space):
-#     reg = lgb.LGBMRegressor(
-#                             # max_depth=int(space['max_depth']),
-#                             num_leaves=int(space['num_leaves']),
-#                             min_child_sample=space['min_child_sample'],
-#                             learning_rate=space['learning_rate'],
-#                             bagging_fraction=space['bagging_fraction'],
-#                             feature_fraction=space['feature_fraction'],
-#                             bagging_frequency=space['bagging_frequency'],
-#                             bagging_seed=int(space['bagging_seed']),
-#                             num_boost_round=int(space['num_boost_round']),
-#                             objective='regression')
-#     eval_set = [(dev_X, dev_y), (val_X, val_y)]
-#     reg.fit(dev_X, dev_y, eval_set=eval_set, eval_metric = 'rmse')
-#     pred = reg.predict(val_X)
-#     performance = np.sqrt(mean_squared_error((val_y), (pred)))
-#     return{'loss': performance, 'status': STATUS_OK}
-# space = {
-#          # 'max_depth': hp.choice('max_depth', range(3, 15)),
-#          # 'max_depth': hp.quniform('max_depth', 3, 15, 1),
-#          # 'num_leaves': hp.randint('num_leaves', 100),
-#          # 'num_leaves': hp.choice('num_leaves', range(10, 40)),
-#          'num_leaves': hp.quniform('num_leaves', 10, 40, 1),
-#          'min_child_sample': hp.quniform('min_child_sample', 1, 150, 1),
-#          'learning_rate': hp.quniform('learning_rate', 0.1, 0.6, 0.1),
-#          'bagging_fraction': hp.quniform('bagging_fraction', 0.6, 1, 0.1),
-#          'feature_fraction': hp.quniform('feature_fraction', 0.6, 1, 0.1),
-#          'bagging_frequency': hp.quniform('bagging_frequency', 1, 6, 1),
-#          # 'bagging_seed': hp.choice('bagging_seed', range(2018, 2020)),
-#          'bagging_seed': hp.quniform('bagging_seed', 2018, 2020, 1),
-#          # 'num_boost_round': hp.choice('num_boost_round', np.arange(500, 2000, 50, dtype=int)),
-#          'num_boost_round': hp.quniform('num_boost_round', 500, 2000, 50),
-#          }
-
-# def objective(space):
-#     reg = xgb.XGBRegressor(
-#                             max_depth=int(space['max_depth']),
-#                             eta=space['eta'],
-#                             subsample=space['subsample'],
-#                             colsample_bytree=space['colsample_bytree'],
-#                             random_state=42,
-#                             n_estimators=int(space['n_estimators']),
-#                             objective='reg:linear')
-#     eval_set = [(dev_X, dev_y), (val_X, val_y)]
-#     reg.fit(dev_X, dev_y, eval_set=eval_set, eval_metric = 'rmse')
-#     pred = reg.predict(val_X)
-#     performance = np.sqrt(mean_squared_error((val_y), (pred)))
-#     return{'loss': performance, 'status': STATUS_OK}
-# space = {
-#          'max_depth': hp.choice('max_depth', range(3, 15)),
-#          'eta': hp.quniform('eta', 0.005, 1, 0.05),
-#          'subsample': hp.quniform('subsample', 0.6, 1, 0.1),
-#          'colsample_bytree': hp.quniform('colsample_bytree', 0.6, 1, 0.1),
-#          'n_estimators': hp.quniform('n_estimators', 500, 2000, 25),
-#          }
-# trials = Trials()
-# best = fmin(fn=objective,
-#             space=space,
-#             algo=tpe.suggest,
-#             max_evals=3,  # change
-#             trials=trials)
-# print(best)
+    ##Decision Tree/RandomForest
+n_features = X_train.shape[1]
+plt.barh(range(n_features), tree_model.feature_importances_, align='center')
+plt.yticks(np.arange(n_features), X_train.columns)
+plt.grid(True)
+plt.title('Decision Tree Feature Importance (depth: 2)')
+plt.xlabel("Feature importance")
+plt.ylabel("Features")
