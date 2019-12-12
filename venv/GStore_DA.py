@@ -1,4 +1,4 @@
-import os  #載入系統
+import os  #載入系統套件
 import time  #時間套件
 import json  #JSON套件
 import numpy as np  #數學計算套件
